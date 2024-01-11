@@ -1,7 +1,9 @@
 from datetime import date, timedelta
 
 import pytest
-from local import Batch, OrderLine, allocate, OutOfStock
+from .local import insert_order_line, allocate, insert_batch, OutOfStock
+from .model import Batch, OrderLine
+import repository
 # My implementation
 # def test_allocating_to_a_batch_reduces_quantity():
 #     sku = Sku("chair")
@@ -93,3 +95,30 @@ def test_raises_out_of_stock_exception_if_cannot_allocate():
 
     with pytest.raises(OutOfStock, match="SMALL-FORK"):
         allocate(OrderLine("order2", "SMALL-FORK", 1), [batch])
+
+def test_repository_can_save_a_batch(session):
+    batch = Batch("batch1", "RUSTY-SOAPDISH", 100, eta=None)
+
+    repo = repository.SqlAlchemyRepository(session)
+    repo.add(batch)
+    session.commit()
+
+    rows = session.execte('SELECT reference, sku, _purchased_quantity, eta FROM batches')
+    assert list(rows) == [("batch1", "RUSTY-SOAPDISH", 100, None)]
+
+def test_repository_can_retrieve_a_batch_with_allocations(session):
+    orderline_id = insert_order_line(session)
+    batch1_id = insert_batch(session, "batch1")
+    insert_batch(session, "batch2")
+    insert_allocation(session, orderline_id, batch1_id)
+
+    repo = repository.SqlAlchemyRepository(session)
+    retrieved = repo.get("batch1")
+
+    expected = Batch("batch1", "GENERIC-SOFA", 100, eta=None)
+    assert retrieved == expected
+    assert retrieved.sku == expected.sku
+    assert retrieved._purchased_quantity == expected._purchased_quantity
+    assert retrieved._allocations == {
+        OrderLine("order1", "GENERIC-SOFA", 12)
+    }
